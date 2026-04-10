@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes, viewport-fit=cover">
+    <meta name="theme-color" content="#1a1a2e">
+    <title>Admin Dashboard - SMS Bomber</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #1a1a2e; color: #eee; padding: 16px; }
+        .container { max-width: 1400px; margin: 0 auto; }
+        .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px; border-radius: 16px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
+        .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 16px; margin-bottom: 20px; }
+        .stat-card { background: #16213e; padding: 20px; border-radius: 16px; text-align: center; }
+        .stat-number { font-size: 32px; font-weight: bold; color: #667eea; }
+        .stat-label { font-size: 13px; color: #aaa; margin-top: 5px; }
+        .search-box { background: #16213e; padding: 20px; border-radius: 16px; margin-bottom: 20px; display: flex; gap: 12px; flex-wrap: wrap; }
+        .search-box input { flex: 1; padding: 14px; border: 2px solid #2a3a5e; border-radius: 12px; background: #0f3460; color: white; font-size: 14px; }
+        .search-box button { padding: 14px 24px; background: #667eea; color: white; border: none; border-radius: 12px; cursor: pointer; font-weight: 600; }
+        .users-table { background: #16213e; border-radius: 16px; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        table { width: 100%; border-collapse: collapse; min-width: 800px; }
+        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #2a3a5e; font-size: 13px; }
+        th { background: #0f3460; color: #667eea; font-weight: 600; position: sticky; top: 0; }
+        .status-pending { background: #ffc107; color: #000; padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: 600; display: inline-block; }
+        .status-none { background: #28a745; color: #fff; padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: 600; display: inline-block; }
+        .badge-banned { background: #dc3545; color: white; padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: 600; display: inline-block; }
+        .badge-admin { background: #667eea; color: white; padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: 600; display: inline-block; }
+        button { padding: 8px 12px; margin: 0 4px; border: none; border-radius: 8px; cursor: pointer; font-size: 12px; font-weight: 600; transition: transform 0.2s; }
+        button:active { transform: scale(0.96); }
+        .btn-grant { background: #28a745; color: white; }
+        .btn-take { background: #ffc107; color: #000; }
+        .btn-ban { background: #dc3545; color: white; }
+        .btn-unban { background: #17a2b8; color: white; }
+        .btn-delete { background: #6c757d; color: white; }
+        .btn-logout { background: #dc3545; color: white; padding: 10px 20px; }
+        .btn-primary { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }
+        input { width: 70px; padding: 8px; border: 2px solid #2a3a5e; border-radius: 8px; background: #0f3460; color: white; font-size: 13px; }
+        .login-card { background: #16213e; padding: 30px; border-radius: 16px; max-width: 400px; margin: 0 auto; }
+        .login-card input { width: 100%; margin-bottom: 12px; padding: 14px; }
+        .loading { text-align: center; padding: 40px; }
+        .action-buttons { display: flex; gap: 5px; flex-wrap: wrap; }
+        @media (max-width: 768px) {
+            .stats { grid-template-columns: repeat(3, 1fr); gap: 12px; }
+            .stat-number { font-size: 24px; }
+            th, td { padding: 8px; font-size: 11px; }
+            .action-buttons { flex-direction: column; }
+            button { padding: 6px 10px; font-size: 11px; }
+        }
+        .users-table::-webkit-scrollbar { height: 6px; }
+        .users-table::-webkit-scrollbar-track { background: #2a3a5e; border-radius: 10px; }
+        .users-table::-webkit-scrollbar-thumb { background: #667eea; border-radius: 10px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div id="authScreen">
+            <div class="login-card">
+                <h2 style="text-align:center; margin-bottom:20px;">🔐 Admin Login</h2>
+                <input type="email" id="adminEmail" placeholder="Admin Email">
+                <input type="password" id="adminPassword" placeholder="Password">
+                <button onclick="adminLogin()" class="btn-primary">Login</button>
+                <div id="loginError" style="color: #dc3545; margin-top: 12px; text-align: center;"></div>
+            </div>
+        </div>
+
+        <div id="dashboard" style="display: none;">
+            <div class="header">
+                <h1>👑 Admin Dashboard</h1>
+                <button onclick="logout()" class="btn-logout">Logout</button>
+            </div>
+            
+            <div class="stats">
+                <div class="stat-card"><div class="stat-number" id="totalUsers">0</div><div class="stat-label">Total Users</div></div>
+                <div class="stat-card"><div class="stat-number" id="pendingAppeals">0</div><div class="stat-label">Pending Appeals</div></div>
+                <div class="stat-card"><div class="stat-number" id="totalTokens">0</div><div class="stat-label">Total Tokens Given</div></div>
+                <div class="stat-card"><div class="stat-number" id="bannedUsers">0</div><div class="stat-label">Banned Users</div></div>
+            </div>
+
+            <div class="search-box">
+                <input type="text" id="searchInput" placeholder="Search by email, user ID, or name..." onkeypress="if(event.key==='Enter') searchUsers()">
+                <button onclick="searchUsers()">🔍 Search</button>
+                <button onclick="loadAllUsers()">📋 Show All</button>
+            </div>
+
+            <div class="users-table">
+                <table>
+                    <thead>
+                        <tr><th>ID</th><th>Email/Name</th><th>Tokens</th><th>Used</th><th>Appeal</th><th>Status</th><th>Actions</th></tr>
+                    </thead>
+                    <tbody id="usersTableBody"><tr><td colspan="7" class="loading">Loading users...</td></tr></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+    <script>
+        const firebaseConfig = JSON.parse('{{ firebase_config|tojson|safe }}');
+        firebase.initializeApp(firebaseConfig);
+        const auth = firebase.auth();
+        
+        let idToken = null;
+        const ADMIN_UID = "BwSdiixC70MqnlA0t5oOSYREp0e2";
+        
+        window.adminLogin = async () => {
+            const email = document.getElementById('adminEmail').value;
+            const password = document.getElementById('adminPassword').value;
+            const errorDiv = document.getElementById('loginError');
+            if (!email || !password) { errorDiv.textContent = 'Please enter email and password'; return; }
+            errorDiv.textContent = '';
+            try {
+                const result = await auth.signInWithEmailAndPassword(email, password);
+                if (result.user.uid !== ADMIN_UID) { await auth.signOut(); errorDiv.textContent = 'Not authorized as admin'; return; }
+                idToken = await result.user.getIdToken();
+                document.getElementById('authScreen').style.display = 'none';
+                document.getElementById('dashboard').style.display = 'block';
+                loadAllUsers();
+            } catch (error) { errorDiv.textContent = 'Login failed: ' + error.message; }
+        };
+        
+        window.logout = async () => { await auth.signOut(); location.reload(); };
+        
+        async function loadAllUsers() {
+            try {
+                const response = await fetch('/api/admin/users', { headers: { 'Authorization': `Bearer ${idToken}` } });
+                const data = await response.json();
+                if (data.error) { alert('Error: ' + data.error); return; }
+                renderUsers(data.users);
+            } catch (error) { console.error('Error:', error); }
+        }
+        
+        window.searchUsers = async () => {
+            const searchTerm = document.getElementById('searchInput').value.trim();
+            if (!searchTerm) return loadAllUsers();
+            try {
+                const response = await fetch('/api/admin/search_users', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
+                    body: JSON.stringify({ search_term: searchTerm })
+                });
+                const data = await response.json();
+                if (data.error) { alert('Error: ' + data.error); return; }
+                renderUsers(data.users);
+            } catch (error) { console.error('Error:', error); }
+        };
+        
+        function renderUsers(users) {
+            const tbody = document.getElementById('usersTableBody');
+            tbody.innerHTML = '';
+            let totalUsers = 0, pendingAppeals = 0, totalTokens = 0, bannedUsers = 0;
+            users.forEach(user => {
+                totalUsers++;
+                if (user.appeal_status === 'pending') pendingAppeals++;
+                totalTokens += user.total_used || 0;
+                if (user.is_banned) bannedUsers++;
+                const row = tbody.insertRow();
+                let statusBadge = '';
+                if (user.is_banned) statusBadge = '<span class="badge-banned">BANNED</span>';
+                if (user.is_admin) statusBadge = '<span class="badge-admin">ADMIN</span>';
+                row.innerHTML = `
+                    <td style="font-family:monospace; font-size:11px;">${user.id.substring(0, 12)}...</td>
+                    <td><strong>${user.display_name || '-'}</strong><br><small style="color:#aaa;">${user.email || 'no email'}</small></td>
+                    <td><strong style="font-size:18px;">${user.remaining_attacks}</strong></td>
+                    <td>${user.total_used || 0}</td>
+                    <td>${user.appeal_status === 'pending' ? '<span class="status-pending">PENDING</span>' : '<span class="status-none">NONE</span>'}</td>
+                    <td>${statusBadge || '-'}</td>
+                    <td class="action-buttons">
+                        <input type="number" id="amount_${user.id}" value="5" min="1" max="100" style="width:55px;">
+                        <button onclick="grantTokens('${user.id}')" class="btn-grant">+Add</button>
+                        <button onclick="takeTokens('${user.id}')" class="btn-take">Take All</button>
+                        ${!user.is_banned ? `<button onclick="banUser('${user.id}')" class="btn-ban">Ban</button>` : `<button onclick="unbanUser('${user.id}')" class="btn-unban">Unban</button>`}
+                        <button onclick="deleteUser('${user.id}')" class="btn-delete">Delete</button>
+                    </td>
+                `;
+            });
+            document.getElementById('totalUsers').textContent = totalUsers;
+            document.getElementById('pendingAppeals').textContent = pendingAppeals;
+            document.getElementById('totalTokens').textContent = totalTokens;
+            document.getElementById('bannedUsers').textContent = bannedUsers;
+        }
+        
+        window.grantTokens = async (userId) => {
+            const amount = document.getElementById(`amount_${userId}`).value;
+            if (!confirm(`Grant ${amount} tokens to this user?`)) return;
+            try {
+                const response = await fetch('/api/admin/grant_tokens', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
+                    body: JSON.stringify({ user_id: userId, amount: parseInt(amount) })
+                });
+                const data = await response.json();
+                if (data.success) { alert('✅ Tokens granted!'); loadAllUsers(); }
+                else alert('Error: ' + data.error);
+            } catch (error) { alert('Error: ' + error.message); }
+        };
+        
+        window.takeTokens = async (userId) => {
+            if (!confirm('⚠️ Remove ALL tokens from this user? They will have 0 attacks left.')) return;
+            try {
+                const response = await fetch('/api/admin/take_tokens', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
+                    body: JSON.stringify({ user_id: userId })
+                });
+                const data = await response.json();
+                if (data.success) { alert('✅ All tokens removed!'); loadAllUsers(); }
+                else alert('Error: ' + data.error);
+            } catch (error) { alert('Error: ' + error.message); }
+        };
+        
+        window.banUser = async (userId) => {
+            if (!confirm('⚠️ Ban this user? They will not be able to attack.')) return;
+            try {
+                const response = await fetch('/api/admin/ban_user', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
+                    body: JSON.stringify({ user_id: userId, action: 'ban' })
+                });
+                const data = await response.json();
+                if (data.success) { alert('✅ User banned!'); loadAllUsers(); }
+                else alert('Error: ' + data.error);
+            } catch (error) { alert('Error: ' + error.message); }
+        };
+        
+        window.unbanUser = async (userId) => {
+            if (!confirm('Unban this user?')) return;
+            try {
+                const response = await fetch('/api/admin/ban_user', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
+                    body: JSON.stringify({ user_id: userId, action: 'unban' })
+                });
+                const data = await response.json();
+                if (data.success) { alert('✅ User unbanned!'); loadAllUsers(); }
+                else alert('Error: ' + data.error);
+            } catch (error) { alert('Error: ' + error.message); }
+        };
+        
+        window.deleteUser = async (userId) => {
+            if (!confirm('⚠️ PERMANENTLY delete this user from database? This cannot be undone!')) return;
+            try {
+                const response = await fetch('/api/admin/delete_user', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
+                    body: JSON.stringify({ user_id: userId })
+                });
+                const data = await response.json();
+                if (data.success) { alert('✅ User deleted!'); loadAllUsers(); }
+                else alert('Error: ' + data.error);
+            } catch (error) { alert('Error: ' + error.message); }
+        };
+        
+        auth.onAuthStateChanged(async (user) => {
+            if (user && user.uid === ADMIN_UID) { idToken = await user.getIdToken(); document.getElementById('authScreen').style.display = 'none'; document.getElementById('dashboard').style.display = 'block'; loadAllUsers(); }
+        });
+        
+        setInterval(() => { if (idToken) loadAllUsers(); }, 30000);
+        document.getElementById('adminPassword')?.addEventListener('keypress', e => { if (e.key === 'Enter') adminLogin(); });
+    </script>
+</body>
+</html>
