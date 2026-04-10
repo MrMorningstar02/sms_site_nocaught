@@ -107,43 +107,77 @@
             const email = document.getElementById('adminEmail').value;
             const password = document.getElementById('adminPassword').value;
             const errorDiv = document.getElementById('loginError');
-            if (!email || !password) { errorDiv.textContent = 'Please enter email and password'; return; }
+            
+            if (!email || !password) {
+                errorDiv.textContent = 'Please enter email and password';
+                return;
+            }
             errorDiv.textContent = '';
+            
             try {
                 const result = await auth.signInWithEmailAndPassword(email, password);
-                if (result.user.uid !== ADMIN_UID) { await auth.signOut(); errorDiv.textContent = 'Not authorized as admin'; return; }
+                
+                // Check if user is admin (by UID)
+                if (result.user.uid !== ADMIN_UID) {
+                    await auth.signOut();
+                    errorDiv.textContent = 'You are not authorized as admin';
+                    return;
+                }
+                
                 idToken = await result.user.getIdToken();
+                console.log("Admin logged in, token obtained");
+                
                 document.getElementById('authScreen').style.display = 'none';
                 document.getElementById('dashboard').style.display = 'block';
-                loadAllUsers();
-            } catch (error) { errorDiv.textContent = 'Login failed: ' + error.message; }
+                
+                // Load users immediately
+                await loadAllUsers();
+                
+            } catch (error) {
+                errorDiv.textContent = 'Login failed: ' + error.message;
+            }
         };
-        
+                
         window.logout = async () => { await auth.signOut(); location.reload(); };
         
+
+        // loadAllUsers ফাংশন আপডেট করো:
         async function loadAllUsers() {
+            console.log("Loading users...");
             try {
-                const response = await fetch('/api/admin/users', { headers: { 'Authorization': `Bearer ${idToken}` } });
-                const data = await response.json();
-                if (data.error) { alert('Error: ' + data.error); return; }
-                renderUsers(data.users);
-            } catch (error) { console.error('Error:', error); }
-        }
-        
-        window.searchUsers = async () => {
-            const searchTerm = document.getElementById('searchInput').value.trim();
-            if (!searchTerm) return loadAllUsers();
-            try {
-                const response = await fetch('/api/admin/search_users', {
-                    method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
-                    body: JSON.stringify({ search_term: searchTerm })
+                const response = await fetch('/api/admin/users', { 
+                    headers: { 'Authorization': `Bearer ${idToken}` }
                 });
+                
+                console.log("Response status:", response.status);
+                
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error("Error response:", errorText);
+                    throw new Error(`HTTP ${response.status}: ${errorText}`);
+                }
+                
                 const data = await response.json();
-                if (data.error) { alert('Error: ' + data.error); return; }
-                renderUsers(data.users);
-            } catch (error) { console.error('Error:', error); }
-        };
-        
+                console.log("Data received:", data);
+                
+                if (data.error) {
+                    console.error("Server error:", data.error);
+                    alert('Error: ' + data.error);
+                    return;
+                }
+                
+                if (data.users && Array.isArray(data.users)) {
+                    console.log("Users found:", data.users.length);
+                    renderUsers(data.users);
+                } else {
+                    console.error("No users array in response", data);
+                    renderUsers([]);
+                }
+            } catch (error) { 
+                console.error('Error loading users:', error);
+                alert('Failed to load users: ' + error.message);
+            }
+        }
         function renderUsers(users) {
             const tbody = document.getElementById('usersTableBody');
             tbody.innerHTML = '';
