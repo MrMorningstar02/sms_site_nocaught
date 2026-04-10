@@ -58,7 +58,7 @@
                 <h2 style="text-align:center; margin-bottom:20px;">🔐 Admin Login</h2>
                 <input type="email" id="adminEmail" placeholder="Admin Email">
                 <input type="password" id="adminPassword" placeholder="Password">
-                <button onclick="adminLogin()" class="btn-primary">Login</button>
+                <button onclick="adminLogin(event)" class="btn-primary">Login</button>
                 <div id="loginError" style="color: #dc3545; margin-top: 12px; text-align: center;"></div>
             </div>
         </div>
@@ -99,20 +99,56 @@
         const firebaseConfig = JSON.parse('{{ firebase_config|tojson|safe }}');
         firebase.initializeApp(firebaseConfig);
         const auth = firebase.auth();
+        auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
         
         let idToken = null;
+        let authActionInProgress = false;
+        let allUsers = [];
         const ADMIN_UID = "BwSdiixC70MqnlA0t5oOSYREp0e2";
         
-        window.adminLogin = async () => {
-            const email = document.getElementById('adminEmail').value;
+        function setAdminButtonLoading(button, isLoading) {
+            if (!button) return;
+            button.disabled = isLoading;
+            button.textContent = isLoading ? 'Logging in...' : 'Login';
+        }
+
+        function escapeHtml(value) {
+            return String(value ?? '').replace(/[&<>"']/g, char => ({
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#39;'
+            })[char]);
+        }
+
+        function showTableMessage(message, type = 'loading') {
+            const tbody = document.getElementById('usersTableBody');
+            tbody.innerHTML = `<tr><td colspan="7" class="${type}" style="text-align:center; padding:30px;">${escapeHtml(message)}</td></tr>`;
+        }
+
+        function updateStats(users = []) {
+            document.getElementById('totalUsers').textContent = users.length;
+            document.getElementById('pendingAppeals').textContent = users.filter(user => user.appeal_status === 'pending').length;
+            document.getElementById('totalTokens').textContent = users.reduce((total, user) => total + (user.total_used || 0), 0);
+            document.getElementById('bannedUsers').textContent = users.filter(user => user.is_banned).length;
+        }
+
+        window.adminLogin = async (event) => {
+            const email = document.getElementById('adminEmail').value.trim();
             const password = document.getElementById('adminPassword').value;
             const errorDiv = document.getElementById('loginError');
+            const loginButton = event?.target?.tagName === 'BUTTON'
+                ? event.target
+                : document.querySelector('.login-card .btn-primary');
             
             if (!email || !password) {
                 errorDiv.textContent = 'Please enter email and password';
                 return;
             }
             errorDiv.textContent = '';
+            authActionInProgress = true;
+            setAdminButtonLoading(loginButton, true);
             
             try {
                 const result = await auth.signInWithEmailAndPassword(email, password);
@@ -121,6 +157,7 @@
                 if (result.user.uid !== ADMIN_UID) {
                     await auth.signOut();
                     errorDiv.textContent = 'You are not authorized as admin';
+                    setAdminButtonLoading(loginButton, false);
                     return;
                 }
                 
@@ -135,6 +172,9 @@
                 
             } catch (error) {
                 errorDiv.textContent = 'Login failed: ' + error.message;
+                setAdminButtonLoading(loginButton, false);
+            } finally {
+                authActionInProgress = false;
             }
         };
                 
@@ -144,10 +184,16 @@
         // loadAllUsers ফাংশন আপডেট করো:
         async function loadAllUsers() {
             console.log("Loading users...");
+            showTableMessage('Loading users...');
             try {
+                if (!idToken) throw new Error('Admin token is missing. Please log in again.');
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 15000);
                 const response = await fetch('/api/admin/users', { 
-                    headers: { 'Authorization': `Bearer ${idToken}` }
+                    headers: { 'Authorization': `Bearer ${idToken}` },
+                    signal: controller.signal
                 });
+                clearTimeout(timeoutId);
                 
                 console.log("Response status:", response.status);
                 
@@ -162,48 +208,63 @@
                 
                 if (data.error) {
                     console.error("Server error:", data.error);
-                    alert('Error: ' + data.error);
+                    showTableMessage('Error loading users: ' + data.error, 'error');
                     return;
                 }
                 
                 if (data.users && Array.isArray(data.users)) {
                     console.log("Users found:", data.users.length);
+                    allUsers = data.users;
                     renderUsers(data.users);
                 } else {
                     console.error("No users array in response", data);
+                    allUsers = [];
                     renderUsers([]);
                 }
             } catch (error) { 
                 console.error('Error loading users:', error);
-                alert('Failed to load users: ' + error.message);
+                const message = error.name === 'AbortError'
+                    ? 'Request timed out while loading users. Check the admin users API.'
+                    : 'Failed to load users: ' + error.message;
+                showTableMessage(message, 'error');
+                updateStats([]);
             }
         }
         function renderUsers(users) {
             const tbody = document.getElementById('usersTableBody');
             tbody.innerHTML = '';
+            if (!users.length) {
+                showTableMessage('No users found.', 'loading');
+                updateStats([]);
+                return;
+            }
             let totalUsers = 0, pendingAppeals = 0, totalTokens = 0, bannedUsers = 0;
             users.forEach(user => {
                 totalUsers++;
                 if (user.appeal_status === 'pending') pendingAppeals++;
                 totalTokens += user.total_used || 0;
                 if (user.is_banned) bannedUsers++;
+                const userId = String(user.id || '');
+                const safeUserId = escapeHtml(userId);
+                const safeName = escapeHtml(user.display_name || '-');
+                const safeEmail = escapeHtml(user.email || 'no email');
                 const row = tbody.insertRow();
                 let statusBadge = '';
                 if (user.is_banned) statusBadge = '<span class="badge-banned">BANNED</span>';
                 if (user.is_admin) statusBadge = '<span class="badge-admin">ADMIN</span>';
                 row.innerHTML = `
-                    <td style="font-family:monospace; font-size:11px;">${user.id.substring(0, 12)}...</td>
-                    <td><strong>${user.display_name || '-'}</strong><br><small style="color:#aaa;">${user.email || 'no email'}</small></td>
+                    <td style="font-family:monospace; font-size:11px;">${escapeHtml(userId.substring(0, 12))}...</td>
+                    <td><strong>${safeName}</strong><br><small style="color:#aaa;">${safeEmail}</small></td>
                     <td><strong style="font-size:18px;">${user.remaining_attacks}</strong></td>
                     <td>${user.total_used || 0}</td>
                     <td>${user.appeal_status === 'pending' ? '<span class="status-pending">PENDING</span>' : '<span class="status-none">NONE</span>'}</td>
                     <td>${statusBadge || '-'}</td>
                     <td class="action-buttons">
-                        <input type="number" id="amount_${user.id}" value="5" min="1" max="100" style="width:55px;">
-                        <button onclick="grantTokens('${user.id}')" class="btn-grant">+Add</button>
-                        <button onclick="takeTokens('${user.id}')" class="btn-take">Take All</button>
-                        ${!user.is_banned ? `<button onclick="banUser('${user.id}')" class="btn-ban">Ban</button>` : `<button onclick="unbanUser('${user.id}')" class="btn-unban">Unban</button>`}
-                        <button onclick="deleteUser('${user.id}')" class="btn-delete">Delete</button>
+                        <input type="number" id="amount_${safeUserId}" value="5" min="1" max="100" style="width:55px;">
+                        <button onclick="grantTokens('${safeUserId}')" class="btn-grant">+Add</button>
+                        <button onclick="takeTokens('${safeUserId}')" class="btn-take">Take All</button>
+                        ${!user.is_banned ? `<button onclick="banUser('${safeUserId}')" class="btn-ban">Ban</button>` : `<button onclick="unbanUser('${safeUserId}')" class="btn-unban">Unban</button>`}
+                        <button onclick="deleteUser('${safeUserId}')" class="btn-delete">Delete</button>
                     </td>
                 `;
             });
@@ -212,6 +273,20 @@
             document.getElementById('totalTokens').textContent = totalTokens;
             document.getElementById('bannedUsers').textContent = bannedUsers;
         }
+
+        window.searchUsers = () => {
+            const query = document.getElementById('searchInput').value.trim().toLowerCase();
+            if (!query) {
+                renderUsers(allUsers);
+                return;
+            }
+            const filteredUsers = allUsers.filter(user =>
+                (user.id || '').toLowerCase().includes(query) ||
+                (user.email || '').toLowerCase().includes(query) ||
+                (user.display_name || '').toLowerCase().includes(query)
+            );
+            renderUsers(filteredUsers);
+        };
         
         window.grantTokens = async (userId) => {
             const amount = document.getElementById(`amount_${userId}`).value;
@@ -280,11 +355,12 @@
         };
         
         auth.onAuthStateChanged(async (user) => {
+            if (authActionInProgress) return;
             if (user && user.uid === ADMIN_UID) { idToken = await user.getIdToken(); document.getElementById('authScreen').style.display = 'none'; document.getElementById('dashboard').style.display = 'block'; loadAllUsers(); }
         });
         
         setInterval(() => { if (idToken) loadAllUsers(); }, 30000);
-        document.getElementById('adminPassword')?.addEventListener('keypress', e => { if (e.key === 'Enter') adminLogin(); });
+        document.getElementById('adminPassword')?.addEventListener('keypress', e => { if (e.key === 'Enter') adminLogin(e); });
     </script>
 </body>
 </html>
