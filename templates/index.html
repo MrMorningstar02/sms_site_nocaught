@@ -65,7 +65,7 @@
                 <div id="loginForm">
                     <input type="email" id="loginEmail" placeholder="Email">
                     <input type="password" id="loginPassword" placeholder="Password">
-                    <button onclick="doLogin()" class="btn-primary">Login</button>
+                    <button onclick="doLogin(event)" class="btn-primary">Login</button>
                     <div class="switch-mode"><a onclick="showRegister()">Don't have an account? Register</a></div>
                 </div>
                 <div id="registerForm" style="display: none;">
@@ -184,7 +184,13 @@
         };
         
         
-        window.doLogin = async () => {
+        function resetLoginButton(button) {
+            if (!button) return;
+            button.disabled = false;
+            button.textContent = 'Login';
+        }
+
+        window.doLogin = async (event) => {
             const email = document.getElementById('loginEmail').value.trim();
             const password = document.getElementById('loginPassword').value;
             
@@ -193,7 +199,10 @@
                 return;
             }
             
-            const loginBtn = event.target;
+            const loginBtn = event?.target?.tagName === 'BUTTON'
+                ? event.target
+                : document.querySelector('#loginForm .btn-primary');
+            authActionInProgress = true;
             loginBtn.disabled = true;
             loginBtn.textContent = 'Logging in...';
             
@@ -210,7 +219,8 @@
                 // }
                 
                 // Call backend verification
-                await handleUserLoggedIn(result.user);
+                const loggedIn = await handleUserLoggedIn(result.user);
+                if (!loggedIn) resetLoginButton(loginBtn);
                 
             } catch (error) {
                 console.error('Login error:', error);
@@ -223,22 +233,30 @@
                     errorMsg = 'Too many failed attempts. Try again later.';
                 }
                 showMessage('Login failed: ' + errorMsg, 'error');
-                loginBtn.disabled = false;
-                loginBtn.textContent = 'Login';
+                resetLoginButton(loginBtn);
+            } finally {
+                authActionInProgress = false;
             }
         };      
                 
         async function handleUserLoggedIn(user, options = {}) {
             user = await getVerifiedUser(user, options);
-            if (!user) return;
+            if (!user) return false;
 
             currentUser = user;
             idToken = await user.getIdToken();
-            const response = await fetch('/api/verify_token', {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ idToken: idToken })
-            });
-            const data = await response.json();
+            let data;
+            try {
+                const response = await fetch('/api/verify_token', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ idToken: idToken })
+                });
+                data = await response.json();
+            } catch (error) {
+                showMessage('Could not verify account on the server. Please try again.', 'error');
+                await auth.signOut();
+                return false;
+            }
             if (data.success) {
                 document.getElementById('authScreen').style.display = 'none';
                 document.getElementById('mainScreen').style.display = 'block';
@@ -255,7 +273,12 @@
                     document.getElementById('startBtn').disabled = false;
                 }
                 showMainMessage(`✅ Welcome! You have ${data.remaining_attacks} attack(s) remaining.`, 'success');
-            } else { showMessage(data.error || 'Account is not registered on the server.', 'error'); await auth.signOut(); }
+                return true;
+            } else {
+                showMessage(data.error || 'Account is not registered on the server.', 'error');
+                await auth.signOut();
+                return false;
+            }
         }
         
         window.logout = async () => { await auth.signOut(); location.reload(); };
@@ -328,7 +351,7 @@
             if (authActionInProgress) return;
             if (user) await handleUserLoggedIn(user);
         });
-        document.getElementById('loginPassword')?.addEventListener('keypress', e => { if (e.key === 'Enter') doLogin(); });
+        document.getElementById('loginPassword')?.addEventListener('keypress', e => { if (e.key === 'Enter') doLogin(e); });
         document.getElementById('regPassword')?.addEventListener('keypress', e => { if (e.key === 'Enter') doRegister(); });
         document.getElementById('phone')?.addEventListener('keypress', e => { if (e.key === 'Enter') startAttack(); });
     </script>
