@@ -1,8 +1,16 @@
-# app.py এর শুরুতে এই কোডটা সম্পূর্ণভাবে প্রতিস্থাপন করো
-import json
-import os
+#!/usr/bin/env python3
+import requests
+import time
+import threading
+import uuid
+import random
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime
+from flask import Flask, render_template, request, jsonify  # <-- এই লাইন যোগ করো
 import firebase_admin
 from firebase_admin import credentials, firestore, auth
+import json
+import os
 
 # Firebase Service Account JSON (হার্ডকোড করা)
 FIREBASE_CRED_JSON = '''{
