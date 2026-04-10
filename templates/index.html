@@ -183,22 +183,51 @@
             finally { authActionInProgress = false; }
         };
         
+        
         window.doLogin = async () => {
             const email = document.getElementById('loginEmail').value.trim();
             const password = document.getElementById('loginPassword').value;
-            if (!email || !password) return showMessage('Please enter email and password', 'error');
-            authActionInProgress = true;
+            
+            if (!email || !password) {
+                showMessage('Please enter email and password', 'error');
+                return;
+            }
+            
+            const loginBtn = event.target;
+            loginBtn.disabled = true;
+            loginBtn.textContent = 'Logging in...';
+            
             try {
                 const result = await auth.signInWithEmailAndPassword(email, password);
-                await handleUserLoggedIn(result.user, { resendLink: true });
+                
+                // Email verification check - TEMPORARILY DISABLED FOR TESTING
+                // if (!result.user.emailVerified) {
+                //     await auth.signOut();
+                //     showMessage('❌ Please verify your email first. Check your inbox.', 'error');
+                //     loginBtn.disabled = false;
+                //     loginBtn.textContent = 'Login';
+                //     return;
+                // }
+                
+                // Call backend verification
+                await handleUserLoggedIn(result.user);
+                
             } catch (error) {
-                if (error.code === 'auth/user-not-found') showMessage('No account found. Please register first.', 'error');
-                else if (error.code === 'auth/wrong-password' || error.code === 'auth/invalid-login-credentials' || error.code === 'auth/invalid-credential') showMessage('Invalid login. Use a registered and verified email.', 'error');
-                else showMessage('Login failed: ' + error.message, 'error');
+                console.error('Login error:', error);
+                let errorMsg = error.message;
+                if (error.code === 'auth/user-not-found') {
+                    errorMsg = 'No account found. Please register first.';
+                } else if (error.code === 'auth/wrong-password') {
+                    errorMsg = 'Wrong password. Please try again.';
+                } else if (error.code === 'auth/too-many-requests') {
+                    errorMsg = 'Too many failed attempts. Try again later.';
+                }
+                showMessage('Login failed: ' + errorMsg, 'error');
+                loginBtn.disabled = false;
+                loginBtn.textContent = 'Login';
             }
-            finally { authActionInProgress = false; }
-        };
-        
+        };      
+                
         async function handleUserLoggedIn(user, options = {}) {
             user = await getVerifiedUser(user, options);
             if (!user) return;
