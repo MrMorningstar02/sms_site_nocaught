@@ -6,13 +6,17 @@ import uuid
 import random
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
-from flask import Flask, render_template, request, jsonify  # <-- এই লাইন যোগ করো
+from flask import Flask, render_template, request, jsonify
 import firebase_admin
 from firebase_admin import credentials, firestore, auth
 import json
 import os
 
-# Firebase Service Account JSON (হার্ডকোড করা)
+# ---------- Flask App Initialization ----------
+app = Flask(__name__)
+app.secret_key = "your-super-secret-key-change-this-in-production"
+
+# ---------- Firebase Initialization ----------
 FIREBASE_CRED_JSON = '''{
   "type": "service_account",
   "project_id": "nocaught-db509",
@@ -28,38 +32,30 @@ FIREBASE_CRED_JSON = '''{
 
 # Initialize Firebase
 try:
-    # Try to load from file first (for local), fallback to hardcoded
     if os.path.exists("firebase-adminsdk.json"):
         cred = credentials.Certificate("firebase-adminsdk.json")
     else:
         cred = credentials.Certificate(json.loads(FIREBASE_CRED_JSON))
     
-    # Check if already initialized
     if not firebase_admin._apps:
         firebase_admin.initialize_app(cred)
         print("✅ Firebase initialized successfully!")
-    else:
-        print("⚠️ Firebase already initialized")
+    
+    db = firestore.client()
+    print("✅ Firestore connected!")
+    
 except Exception as e:
     print(f"❌ Firebase init error: {e}")
-    # Fallback: try hardcoded directly
-    cred = credentials.Certificate(json.loads(FIREBASE_CRED_JSON))
-    if not firebase_admin._apps:
-        firebase_admin.initialize_app(cred)
-
-db = firestore.client()
+    raise e
 
 ADMIN_UID = "BwSdiixC70MqnlA0t5oOSYREp0e2"
-
-app = Flask(__name__)
-app.secret_key = "your-super-secret-key-change-this-in-production"
+print(f"👑 Admin UID: {ADMIN_UID}")
 
 # Store active attacks
 attacks = {}
 
 # Rate limiting storage
 ip_attack_count = {}
-device_attack_count = {}
 
 # ---------- Helper Functions ----------
 def format_phone_number(number):
@@ -193,7 +189,7 @@ def record_attack(ip_address):
         ip_attack_count[ip_address] = []
     ip_attack_count[ip_address].append(now)
 
-# ---------- Retry Decorator for Better Success Rate ----------
+# ---------- Retry Decorator ----------
 def retry_request(max_attempts=2, delay=0.5):
     def decorator(func):
         def wrapper(*args, **kwargs):
@@ -211,7 +207,7 @@ def retry_request(max_attempts=2, delay=0.5):
         return wrapper
     return decorator
 
-# ---------- API Tasks with Delays ----------
+# ---------- API Tasks ----------
 def create_api_tasks(session, clean_number, raw_number, full_number):
     tasks = []
     
@@ -522,7 +518,7 @@ def create_api_tasks(session, clean_number, raw_number, full_number):
     
     return tasks
 
-# ---------- Improved Bombing Worker with Sequential Execution & Delays ----------
+# ---------- Bombing Worker ----------
 def bombing_worker(attack_id, raw_number, user_id):
     full_number, clean_number = format_phone_number(raw_number)
     attacks[attack_id]['target'] = full_number
@@ -540,17 +536,14 @@ def bombing_worker(attack_id, raw_number, user_id):
             attacks[attack_id]['logs'].append(f"🔄 CYCLE {cycle_num}/{MAX_CYCLES} STARTED")
             attacks[attack_id]['cycles_done'] = cycle_num
             
-            # Get all tasks
             tasks = create_api_tasks(session, clean_number, raw_number, full_number)
             cycle_success = 0
             cycle_failed = 0
             
-            # Execute tasks SEQUENTIALLY with small delays (prevents rate limiting)
             for name, task in tasks:
                 if attacks.get(attack_id, {}).get('status') != 'running':
                     break
                 
-                # Add random jitter between requests (0.3 to 0.8 seconds)
                 time.sleep(random.uniform(0.3, 0.8))
                 
                 try:
@@ -568,7 +561,6 @@ def bombing_worker(attack_id, raw_number, user_id):
                     total_failed += 1
                     attacks[attack_id]['logs'].append(f"[{name}] ✗")
                 
-                # Update progress periodically
                 attacks[attack_id]['total_success'] = total_success
                 attacks[attack_id]['total_failed'] = total_failed
             
@@ -576,7 +568,6 @@ def bombing_worker(attack_id, raw_number, user_id):
             attacks[attack_id]['total_failed'] = total_failed
             attacks[attack_id]['logs'].append(f"📊 Cycle {cycle_num}: ✓{cycle_success} ✗{cycle_failed} | Total: ✓{total_success} ✗{total_failed}")
             
-            # Longer delay between cycles (8 seconds instead of 5)
             if cycle_num < MAX_CYCLES and attacks.get(attack_id, {}).get('status') == 'running':
                 attacks[attack_id]['logs'].append(f"⏳ Waiting 8 seconds before next cycle...")
                 for i in range(8, 0, -1):
@@ -587,7 +578,6 @@ def bombing_worker(attack_id, raw_number, user_id):
         attacks[attack_id]['status'] = 'completed'
         attacks[attack_id]['logs'].append(f"✅ Attack finished! Final: ✓{total_success} ✗{total_failed}")
         
-        # Only deduct token if at least one request succeeded
         if total_success > 0:
             deduct_attack_token(user_id)
         else:
@@ -638,7 +628,7 @@ def verify_token():
         user_data = get_or_create_user(user_id, email, name)
         
         if user_data.get('is_banned', False):
-            return jsonify({'success': False, 'error': 'Your account has been banned. Contact admin.'}), 403
+            return jsonify({'success': False, 'error': 'Your account has been banned.'}), 403
         
         return jsonify({
             'success': True,
@@ -651,6 +641,7 @@ def verify_token():
             'appeal_status': user_data.get('appeal_status')
         })
     except Exception as e:
+        print(f"Token verify error: {e}")
         return jsonify({'success': False, 'error': str(e)}), 401
 
 @app.route('/api/start_attack', methods=['POST'])
@@ -675,7 +666,7 @@ def start_attack():
         user_data = get_or_create_user(user_id)
         
         if user_data.get('is_banned', False):
-            return jsonify({'error': 'Your account is banned. Contact admin.'}), 403
+            return jsonify({'error': 'Your account is banned.'}), 403
         
         if user_data.get('remaining_attacks', 0) <= 0:
             return jsonify({'error': 'No attack tokens remaining! Please submit an appeal.'}), 403
@@ -698,6 +689,7 @@ def start_attack():
         
         return jsonify({'attack_id': attack_id})
     except Exception as e:
+        print(f"Start attack error: {e}")
         return jsonify({'error': str(e)}), 401
 
 @app.route('/api/attack_status/<attack_id>')
@@ -730,8 +722,9 @@ def submit_appeal_route():
 @app.route('/api/admin/users', methods=['GET'])
 def admin_users():
     auth_header = request.headers.get('Authorization')
+    
     if not auth_header:
-        return jsonify({'error': 'No token'}), 401
+        return jsonify({'error': 'No token provided'}), 401
     
     id_token = auth_header.split(' ')[1]
     
@@ -744,6 +737,7 @@ def admin_users():
         
         users_ref = db.collection('users')
         users = []
+        
         for doc in users_ref.stream():
             user_data = doc.to_dict()
             users.append({
@@ -760,7 +754,9 @@ def admin_users():
             })
         
         return jsonify({'users': users})
+        
     except Exception as e:
+        print(f"Admin users error: {e}")
         return jsonify({'error': str(e)}), 401
 
 @app.route('/api/admin/search_users', methods=['POST'])
