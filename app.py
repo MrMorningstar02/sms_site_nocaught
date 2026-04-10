@@ -1,18 +1,44 @@
-#!/usr/bin/env python3
-import requests
-import time
-import threading
-import uuid
-import random
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from flask import Flask, render_template, request, jsonify
-from datetime import datetime
+# app.py এর শুরুতে এই কোডটা সম্পূর্ণভাবে প্রতিস্থাপন করো
+import json
+import os
 import firebase_admin
 from firebase_admin import credentials, firestore, auth
 
-# ---------- Firebase Initialization ----------
-cred = credentials.Certificate("firebase-adminsdk.json")
-firebase_admin.initialize_app(cred)
+# Firebase Service Account JSON (হার্ডকোড করা)
+FIREBASE_CRED_JSON = '''{
+  "type": "service_account",
+  "project_id": "nocaught-db509",
+  "private_key_id": "15390c47e8b6e2993103c971fb186ac5cd44bcdb",
+  "private_key": "-----BEGIN PRIVATE KEY-----\\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCndwgTL5Zfh6pp\\n5QTXGf/q9zRtP3w+2eKUNhYpPrjKM16n9mRllPCutKfBsz2jC46k2wYOHS6+ix/n\\nmMxoWe1nK4pD4U0YO1sppRFiyz9bhlOLktDFOl3BABtLah73bvyV4r+7TpSNnCIf\\nsNJlPvOsNGWuotOXZ9mptYmDUTk5VJNbfPl11vFsHXhoPE2lrYx9it/krXOVR6gX\\nvo83ZijdgNbjJV68SSxdMzwEBwvdBq7s5COZ0ekXKj5CVKqmc8bnrG99z6vuc0OA\\nHYfhPssN0lvTs5UsrDnnrlky0ex1WeABo9INFvUS75LLiHQ1f8AnRAFdIjk3SNfh\\niIQkRqqjAgMBAAECggEAEhn/uXMvYewcM44Z09Zvn0pRVG3EVFbg8vxVsOeiudiL\\npsQvXfuXeIr2hy2EwBcDuDYklWn6H4aSUEpn7e+qhbhjHatA1hm0ZO/+zRsDIjWG\\n2lNoValVcQM98Azsg/pvOxRjfS+lRxlVZu+KDn+bf0W6qAHZtUf4cyu4TYV+FgAt\\ng+nGVWhu/1Ryg8EZNxGv9IsmPv2LUJdpAvzdmdVzdq3IV4iylCMLl8cAiUm0KPHx\\nFmFwZl1CY7TnZbkoSWwbl2Xe5I3Wrh3dJFSeU8Tbo1R6INdHHyRpfGum0jaFqR6b\\ngQPbKRT+Q1PDKv9n5x1NTS4un6Ilq7bQKqnSWMoh4QKBgQDcbg0xGa5duFD9SVH0\\nud55Yjajz/8BXW1J2fPZvOHwMvwjCrTi5iV/v//IqpUP3JDzv6FQUYQsx/FHRBjc\\nhBJWICicinSGdDMR015pwgAT8kNkYq8UIc4vrl81qoZ3hvq37yOkIlg1VZtgK9Dh\\nzU6nxQcnuvW29rgsG8iLVyOMjwKBgQDCfQBlqT+wxAIv8mhcYmFlRpUJjhynxPsf\\nkGg/kmbUoczecMI5KxOjjMXemIh7Zm/gK5RlbkK48ytDzKHuIaTDxQE2K2paGIO5\\n6Dzs9e7MyJT8Kf4AKPNpKfITRnm3ugjWRR3g1lucUB6fqQUXTY0DxI0VRHoV6oor\\npZZy/0dyrQKBgDRwffTrXh7vpVzMX5Hv0exgoA0Sg2DowAIstqVbGQkSqAcSGfxM\\nsikVHR247yNJ3rYOJas86UvZ+R1yJtP3G4GfvumWyqfd5vRbq39PZsNYBA5Sp8IL\\nVMjlG8NhoQG4e9bcLkdy4Dc3+XHEmrnNJOQmrFAYWzI+uYvMxEXZ4hwjAoGBAKIH\\nT/hiC4yxj3zwgB9PWwLrzah7O8ZNpkVCoocr6f2Fms9Ks5S7HY5o7kQnYbUkv1nM\\nFMJ4HKBG/ilq5xEj+Eec7gh6HQ1YVQ3hvDhSH5N+HBkExvbNJxTa/DEwyqDVHR2d\\n0WmKTCIq4Yh0YKhsVGnqKvun4+o0Ts5UEsZVhOm1AoGAKs73/m4MD2KbDPRmgkFS\\nw6gPT0NWAfmn8EoDARL7BS3qaqmrdNjyv5p3nebJCoZrUtoB/hiB5CLlothc5GaE\\nHlm5ShMgdNrge/62QJC7JxCBukS0PzwsMBiyu5dmT2OZjwQckCkAZX3wUfJQBQUC\\nBWZe55fTeCsQO2nMFDPKMwM=\\n-----END PRIVATE KEY-----\\n",
+  "client_email": "firebase-adminsdk-fbsvc@nocaught-db509.iam.gserviceaccount.com",
+  "client_id": "110543356832530733073",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/firebase-adminsdk-fbsvc%40nocaught-db509.iam.gserviceaccount.com"
+}'''
+
+# Initialize Firebase
+try:
+    # Try to load from file first (for local), fallback to hardcoded
+    if os.path.exists("firebase-adminsdk.json"):
+        cred = credentials.Certificate("firebase-adminsdk.json")
+    else:
+        cred = credentials.Certificate(json.loads(FIREBASE_CRED_JSON))
+    
+    # Check if already initialized
+    if not firebase_admin._apps:
+        firebase_admin.initialize_app(cred)
+        print("✅ Firebase initialized successfully!")
+    else:
+        print("⚠️ Firebase already initialized")
+except Exception as e:
+    print(f"❌ Firebase init error: {e}")
+    # Fallback: try hardcoded directly
+    cred = credentials.Certificate(json.loads(FIREBASE_CRED_JSON))
+    if not firebase_admin._apps:
+        firebase_admin.initialize_app(cred)
+
 db = firestore.client()
 
 ADMIN_UID = "BwSdiixC70MqnlA0t5oOSYREp0e2"
